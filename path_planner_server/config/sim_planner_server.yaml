@@ -27,9 +27,8 @@ global_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.35
-        keepout_filter:
+        cost_scaling_factor: 1.0
+        inflation_radius: 0.15
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True

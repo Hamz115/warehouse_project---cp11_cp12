@@ -1,3 +1,18 @@
+#! /usr/bin/env python3
+# Copyright 2021 Samsung Research America
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import time
 from copy import deepcopy
 
@@ -31,7 +46,7 @@ class ElevatorPublisher(Node):
         super().__init__('elevator_publisher')
         self.liftdown_publisher_ = self.create_publisher(String, '/elevator_down', 10)
         self.liftup_publisher_ = self.create_publisher(String, '/elevator_up', 10)
-        self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.publisher_ = self.create_publisher(Twist, '/diffbot_base_controller/cmd_vel_unstamped', 10)
         self.duration = 6  # Set the duration for which the robot should move back
 
     def drop(self):
@@ -54,7 +69,7 @@ class ElevatorPublisher(Node):
 
         # Publish a message to move the robot backwards
         msg = Twist()
-        msg.linear.x = -0.2  # Move backwards
+        msg.linear.x = -0.25  # Move backwards
         self.publisher_.publish(msg)
         self.get_logger().info('Moving the robot backwards')
 
@@ -120,10 +135,10 @@ class footprintPublisher(Node):
 
 # Shelf positions for picking
 shelf_positions = {
-    "init_position": [ -0.520478, -0.0911187, -0.108273, 0.994121],
-    "loading_position": [ 3.95411, -1.32686, -0.837662, 0.54619],
-    "Midpoint": [1.04646, -0.864842, 0.957607, 0.288078],
-    "shipping_position": [1.4481, 0.38586, 0.678121, 0.73495]
+    "init_position": [0.0, 0.0, 0.0, 1.0],
+    "loading_position": [5.65071, -0.303011, -0.701128, 0.713036],
+    "Midpoint": [2.42113, 0.17089, 0.70684, 0.713841],
+    "shipping_position": [2.52447, 1.32101, 0.69598, 0.718003],
     }
 
 # Shipping destination for picked products
@@ -138,6 +153,13 @@ and at the pallet jack to remove it
 
 
 def main():
+    # Recieved virtual request for picking item at Shelf A and bringing to
+    # worker at the pallet jack 7 for shipping. This request would
+    # contain the shelf ID ("shelf_A") and shipping destination ("pallet_jack7")
+    ####################
+    request_item_location = 'loading_position'
+    request_destination = ''
+    ####################
 
     rclpy.init()
 
@@ -154,11 +176,9 @@ def main():
     
 
     # Wait for navigation to activate fully
-    navigator.setInitialPose(initial_pose)
     navigator.waitUntilNav2Active()
+    navigator.setInitialPose(initial_pose)
 
-    request_item_location = 'loading_position'
-    request_destination = ''
     shelf_item_pose = PoseStamped()
     shelf_item_pose.header.frame_id = 'map'
     shelf_item_pose.header.stamp = navigator.get_clock().now().to_msg()
@@ -199,6 +219,7 @@ def main():
 
     # Instance the elevator publisher
     elevator_publisher = ElevatorPublisher()
+    
     #the service client for shelf lifting
     for n in range(5):
         client = ClientAsync()
@@ -308,7 +329,7 @@ def main():
         print('Task at ' + request_item_location + ' failed!')
         exit(-1)
 
-    #return to the initial position
+    # return to the initial position
     request_item_location = 'init_position'
     shelf_item_pose = PoseStamped()
     shelf_item_pose.header.frame_id = 'map'
