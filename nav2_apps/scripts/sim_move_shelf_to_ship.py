@@ -1,18 +1,3 @@
-#! /usr/bin/env python3
-# Copyright 2021 Samsung Research America
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import time
 from copy import deepcopy
 
@@ -24,7 +9,6 @@ from attach_service.srv import GoToLoading
 from geometry_msgs.msg import Polygon, Point32
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
-from math import cos, sin, pi
 
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
@@ -38,30 +22,83 @@ class ClientAsync(Node):
 
     def send_request(self):
         req = GoToLoading.Request()
-        req.attach_to_shelf = True
         self.future = self.client.call_async(req)
+
+class PolygonPublisher(Node):
+    def __init__(self):
+        super().__init__('polygon_publisher')
+        self.global_publisher_ = self.create_publisher(Polygon, '/global_costmap/footprint', 10)
+        self.local_publisher_ = self.create_publisher(Polygon, '/local_costmap/footprint', 10)
+        self.timer = self.create_timer(1, self.publish_polygon)
+
+        self.square_size = 0.9
+        self.half_size = self.square_size / 2 
+
+        self.circle_shape = [
+            Point32(x=0.25, y=0.0, z=0.0),
+            Point32(x=0.23096988312782168, y=0.09567085809127245, z=0.0),
+            Point32(x=0.1767766952966369, y=0.17677669529663687, z=0.0),
+            Point32(x=0.09567085809127246, y=0.23096988312782168, z=0.0),
+            Point32(x=0.0, y=0.25, z=0.0),
+            Point32(x=-0.09567085809127243, y=0.23096988312782168, z=0.0),
+            Point32(x=-0.17677669529663687, y=0.1767766952966369, z=0.0),
+            Point32(x=-0.23096988312782168, y=0.09567085809127247, z=0.0),
+            Point32(x=-0.25, y=0.0, z=0.0),
+            Point32(x=-0.2309698831278217, y=-0.09567085809127242, z=0.0),
+            Point32(x=-0.17677669529663692, y=-0.17677669529663687, z=0.0),
+            Point32(x=-0.09567085809127258, y=-0.23096988312782163, z=0.0),
+            Point32(x=0.0, y=-0.25, z=0.0),
+            Point32(x=0.0956708580912725, y=-0.23096988312782166, z=0.0),
+            Point32(x=0.17677669529663684, y=-0.17677669529663692, z=0.0),
+            Point32(x=0.23096988312782163, y=-0.0956708580912726, z=0.0)
+        ]
+
+        self.square_shape = [
+            Point32(x=-self.half_size, y=self.half_size, z=0.0), 
+            Point32(x=self.half_size, y=self.half_size, z=0.0),    
+            Point32(x=self.half_size, y=-self.half_size, z=0.0),   
+            Point32(x=-self.half_size, y=-self.half_size, z=0.0)   
+        ]
+
+    def publish_polygon(self, mode):
+        polygon_msg = Polygon()
+        if (mode == 'circle'):
+            polygon_msg.points = self.circle_shape
+        elif (mode == 'square'):
+            polygon_msg.points = self.square_shape
+        else:
+            self.get_logger().info(f'Invalid shape type {mode}')
+            return None
+        self.global_publisher_.publish(polygon_msg)
+        self.local_publisher_.publish(polygon_msg)
+        self.get_logger().info(f'Publishing polygon footprint of type {mode}')
+        return None
 
 class ElevatorPublisher(Node):
     def __init__(self):
         super().__init__('elevator_publisher')
-        self.liftdown_publisher_ = self.create_publisher(String, '/elevator_down', 10)
-        self.liftup_publisher_ = self.create_publisher(String, '/elevator_up', 10)
-        self.publisher_ = self.create_publisher(Twist, '/diffbot_base_controller/cmd_vel_unstamped', 10)
-        self.duration = 6  # Set the duration for which the robot should move back
+        self.publisher_ = self.create_publisher(String, '/elevator_down', 10)
+        self.lift_publisher_ = self.create_publisher(String, '/elevator_up', 10)
 
     def drop(self):
         msg = String()
-        self.liftdown_publisher_.publish(msg)
+        self.publisher_.publish(msg)
         time.sleep(6)
-        self.get_logger().info(f'Cart down')
+        self.get_logger().info(f'Shelf unloaded')
         return None
 
     def lift(self):
         msg = String()
-        self.liftup_publisher_.publish(msg)
+        self.lift_publisher_.publish(msg)
         time.sleep(6)
-        self.get_logger().info(f'Cart up')
+        self.get_logger().info(f'Shelf loaded')
         return None
+
+class RobotMover(Node):
+    def __init__(self):
+        super().__init__('robot_mover')
+        self.publisher_ = self.create_publisher(Twist, '/diffbot_base_controller/cmd_vel_unstamped', 10)
+        self.duration = 6  # Set the duration for which the robot should move back
 
     def move_back(self):
         # Start time
@@ -82,103 +119,34 @@ class ElevatorPublisher(Node):
         self.publisher_.publish(Twist())
         self.get_logger().info('Stopping the robot')
 
-    def wait(self):
-        duration = Duration(seconds=3)
-        rate = self.create_rate(10, self.get_clock())
-        start_time = self.get_clock().now()
-        while rclpy.ok() and (self.get_clock().now() - start_time) < duration:
-            rate.sleep
-       
-class footprintPublisher(Node):
-    def __init__(self):
-        super().__init__('footprint_publisher')
-        self.global_publisher_ = self.create_publisher(Polygon, '/global_costmap/footprint', 10)
-        self.local_publisher_ = self.create_publisher(Polygon, '/local_costmap/footprint', 10)
-
-    def publish_cart_footprint(self):
-
-        footprint = Polygon()
-        point1 = Point32()
-        point1.x = -0.45
-        point1.y = 0.45
-
-        point2 = Point32()
-        point2.x = 0.45
-        point2.y = 0.45
-
-        point3 = Point32()
-        point3.x = 0.45
-        point3.y = -0.45
-
-        point4 = Point32()
-        point4.x = -0.45
-        point4.y = -0.45
-
-        footprint.points = [point1, point2, point3, point4]
-            
-        self.local_publisher_.publish(footprint)
-        self.global_publisher_.publish(footprint)
-
-    def publish_robot_footprint(self):
-        footprint = Polygon()
-        points = []
-        for angle in range(0, 360, 10):
-            point = Point32()
-            point.x = 0.25 * cos(angle * pi / 180)  
-            point.y = 0.25 * sin(angle * pi / 180)  
-            points.append(point)
-
-            footprint.points = points
-            
-            self.local_publisher_.publish(footprint)
-            self.global_publisher_.publish(footprint)
-
 # Shelf positions for picking
 shelf_positions = {
-    "init_position": [0.0, 0.0, 0.0, 1.0],
-    "loading_position": [5.65071, -0.303011, -0.701128, 0.713036],
-    "Midpoint": [2.42113, 0.17089, 0.70684, 0.713841],
-    "shipping_position": [2.52447, 1.32101, 0.69598, 0.718003],
+    "init": [0.0, 0.0, 0.0, 1.0],
+    "loading_position": [5.56071, -0.503011, -0.701128, 0.713036],
+    "corridor": [2.41296, 0.171196, 0.70367, 0.710527],
+    "shipping_position": [2.52769, 1.32043, 0.696154, 0.717892]
     }
 
-# Shipping destination for picked products
-shipping_destinations = {}
-
-'''
-Basic item picking demo. In this demonstration, the expectation
-is that a person is waiting at the item shelf to put the item on the robot
-and at the pallet jack to remove it
-(probably with a button for 'got item, robot go do next task').
-'''
-
-
 def main():
-    # Recieved virtual request for picking item at Shelf A and bringing to
-    # worker at the pallet jack 7 for shipping. This request would
-    # contain the shelf ID ("shelf_A") and shipping destination ("pallet_jack7")
-    ####################
-    request_item_location = 'loading_position'
-    request_destination = ''
-    ####################
-
     rclpy.init()
 
     navigator = BasicNavigator()
 
-    # Set your demo's initial pose
+    # Set initial pose
     initial_pose = PoseStamped()
     initial_pose.header.frame_id = 'map'
     initial_pose.header.stamp = navigator.get_clock().now().to_msg()
-    initial_pose.pose.position.x = shelf_positions['init_position'][0]
-    initial_pose.pose.position.y = shelf_positions['init_position'][1]
-    initial_pose.pose.orientation.z = shelf_positions['init_position'][2]
-    initial_pose.pose.orientation.w = shelf_positions['init_position'][3]
-    
+    initial_pose.pose.position.x = shelf_positions['init'][0]
+    initial_pose.pose.position.y = shelf_positions['init'][1]
+    initial_pose.pose.orientation.z = shelf_positions['init'][2]
+    initial_pose.pose.orientation.w = shelf_positions['init'][3]
 
     # Wait for navigation to activate fully
     navigator.waitUntilNav2Active()
     navigator.setInitialPose(initial_pose)
 
+    # Got to the loading position
+    request_item_location = 'loading_position'
     shelf_item_pose = PoseStamped()
     shelf_item_pose.header.frame_id = 'map'
     shelf_item_pose.header.stamp = navigator.get_clock().now().to_msg()
@@ -187,43 +155,46 @@ def main():
     shelf_item_pose.pose.orientation.z = shelf_positions[request_item_location][2]
     shelf_item_pose.pose.orientation.w = shelf_positions[request_item_location][3]
     print('Received request for item picking at ' + request_item_location + '.')
-    navigator.goToPose(shelf_item_pose)
 
-    # Do something during your route
-    # (e.x. queue up future tasks or detect person for fine-tuned positioning)
-    # Print information for workers on the robot's ETA for the demonstration
-    i = 0
-    while not navigator.isTaskComplete():
-        i = i + 1
-        feedback = navigator.getFeedback()
-        if feedback and i % 5 == 0:
-            print('Estimated time of arrival at ' + request_item_location +
-                  ' for worker: ' + '{0:.0f}'.format(
-                      Duration.from_msg(feedback.estimated_time_remaining).nanoseconds / 1e9)
-                  + ' seconds.')
+    for n in range(5):
+        navigator.goToPose(shelf_item_pose)
+        i = 0
+        while not navigator.isTaskComplete():
+            i = i + 1
+            feedback = navigator.getFeedback()
+            if feedback and i % 5 == 0:
+                print('Estimated time of arrival at ' + request_item_location +
+                    ' for worker: ' + '{0:.0f}'.format(
+                        Duration.from_msg(feedback.estimated_time_remaining).nanoseconds / 1e9)
+                    + ' seconds.')
 
-    result = navigator.getResult()
-    if result == TaskResult.SUCCEEDED:
-        print('Got product from ' + request_item_location +
-              '! Bringing product to shipping destination (' + request_destination + ')...')
+        result = navigator.getResult()
+        if result == TaskResult.SUCCEEDED:
+            print(f'Task completed successfully on {n} attempt.')
+            break
 
-    elif result == TaskResult.CANCELED:
-        print('Task at ' + request_item_location +
-              ' was canceled. Returning to staging point...')
-        initial_pose.header.stamp = navigator.get_clock().now().to_msg()
-        navigator.goToPose(initial_pose)
+        elif result == TaskResult.CANCELED:
+            print('Task at ' + request_item_location +
+                ' was canceled. Returning to staging point...')
+            initial_pose.header.stamp = navigator.get_clock().now().to_msg()
+            navigator.goToPose(initial_pose)
+            break
 
-    elif result == TaskResult.FAILED:
-        print('Task at ' + request_item_location + ' failed!')
-        exit(-1)
+        elif result == TaskResult.FAILED:
+            print('Task at ' + request_item_location + f' failed on its {n + 1} attempt.')
+            if n + 1 == 5: exit(-1)
+            time.sleep(1.0)
 
     # Instance the elevator publisher
     elevator_publisher = ElevatorPublisher()
+
+    # Instance the footprint publisher
+    footprint_publisher = PolygonPublisher()
     
-    #the service client for shelf lifting
+    # Instance the service client for shelf lifting
     for n in range(5):
         client = ClientAsync()
-        print(f'Calling the attach_shelf service.')
+        print(f'Attempt {n+1}: Calling shelf lifting service.')
         client.send_request()
 
         while rclpy.ok():
@@ -245,15 +216,14 @@ def main():
             break
 
     if n + 1 == 5: exit(-1)
-    # Change the robot footprint 
-    footprint_publisher = footprintPublisher()
-    footprint_publisher.publish_cart_footprint()
 
-    # move the robot back
-    elevator_publisher.move_back()
+    # Handle lift and backwards movement
+    footprint_publisher.publish_polygon('square')
+    mover = RobotMover()
+    mover.move_back()
 
-    # move the robot to midpoint to avoid collision
-    request_item_location = 'Midpoint'
+    # Go to the corridor
+    request_item_location = 'corridor'
     shelf_item_pose = PoseStamped()
     shelf_item_pose.header.frame_id = 'map'
     shelf_item_pose.header.stamp = navigator.get_clock().now().to_msg()
@@ -261,8 +231,6 @@ def main():
     shelf_item_pose.pose.position.y = shelf_positions[request_item_location][1]
     shelf_item_pose.pose.orientation.z = shelf_positions[request_item_location][2]
     shelf_item_pose.pose.orientation.w = shelf_positions[request_item_location][3]
-    print(f'Wait for few seconds before moving to shipping position')
-    elevator_publisher.wait()
     print('Moving robot to ' + request_item_location + '.')
     navigator.goToPose(shelf_item_pose)
 
@@ -290,7 +258,9 @@ def main():
         print('Task at ' + request_item_location + ' failed!')
         exit(-1)
 
-    # go to the shipping position
+    
+
+    # Got to the shipping position
     request_item_location = 'shipping_position'
     shelf_item_pose = PoseStamped()
     shelf_item_pose.header.frame_id = 'map'
@@ -315,9 +285,9 @@ def main():
     result = navigator.getResult()
     if result == TaskResult.SUCCEEDED:
         print('Unloading the shelf.')
-        footprint_publisher.publish_robot_footprint()
+        footprint_publisher.publish_polygon('circle')
         elevator_publisher.drop()
-        elevator_publisher.move_back()
+        mover.move_back()
 
     elif result == TaskResult.CANCELED:
         print('Task at ' + request_item_location +
@@ -329,8 +299,9 @@ def main():
         print('Task at ' + request_item_location + ' failed!')
         exit(-1)
 
-    # return to the initial position
-    request_item_location = 'init_position'
+
+     # Got to the init position
+    request_item_location = 'init'
     shelf_item_pose = PoseStamped()
     shelf_item_pose.header.frame_id = 'map'
     shelf_item_pose.header.stamp = navigator.get_clock().now().to_msg()
@@ -353,7 +324,7 @@ def main():
 
     result = navigator.getResult()
     if result == TaskResult.SUCCEEDED:
-        print('Task completed.')
+        print('Task finished.')
 
     elif result == TaskResult.CANCELED:
         print('Task at ' + request_item_location +
@@ -366,10 +337,12 @@ def main():
         exit(-1)
 
 
+
     while not navigator.isTaskComplete():
         pass
 
     exit(0)
+
 
 if __name__ == '__main__':
     main()

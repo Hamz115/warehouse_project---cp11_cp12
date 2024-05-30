@@ -20,7 +20,7 @@ def launch_setup(command, *args, **kwargs):
     else:
         rviz_config_dir = os.path.join(get_package_share_directory('localization_server'), 'config', 'sim_local.rviz')
         localization_yaml = os.path.join(get_package_share_directory('localization_server'), 'config', 'amcl_config.yaml')
-        service_server = 'approach_service_server_sim'
+        service_server = 'sim_approach_service_server'
         execute_process = []
         use_sim_time = True
 
